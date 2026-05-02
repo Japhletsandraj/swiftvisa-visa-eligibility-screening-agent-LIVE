@@ -1,0 +1,26 @@
+{
+  "build_date": "2026-04-09T22:55:26.280541",
+  "model_name": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "total_chunks": 203,
+  "total_vectors": 203,
+  "country": "australia",
+  "display_name": "Australia",
+  "visa_types": [
+    "skilled_nominated_visa_190",
+    "student",
+    "student_visa_500",
+    "visitor_visa_600",
+    "temporary_graduate_visa_485",
+    "temporary_skill_shortage_visa_482"
+  ],
+  "chunks_per_visa": {
+    "skilled_nominated_visa_190": 51,
+    "student": 68,
+    "student_visa_500": 11,
+    "visitor_visa_600": 16,
+    "temporary_graduate_visa_485": 5,
+    "temporary_skill_shortage_visa_482": 52
+  },
+  "source_docs": 5
+}

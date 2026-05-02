@@ -1,6 +1,6 @@
 """
 SwiftVisa - LLM Integration with LM Studio
-Handles communication with Llama 3 model via LM Studio
+Handles communication with the Llama model via LM Studio
 """
 
 import sys
@@ -17,306 +17,215 @@ from config.config import (
     SYSTEM_PROMPT,
     USER_PROMPT_TEMPLATE,
     ELIGIBILITY_PROMPT_TEMPLATE,
-    LOGGING_CONFIG
+    LOGGING_CONFIG,
 )
 
-# Setup logging
-logging.basicConfig(
-    level=LOGGING_CONFIG["level"],
-    format=LOGGING_CONFIG["format"]
-)
+logging.basicConfig(level=LOGGING_CONFIG["level"], format=LOGGING_CONFIG["format"])
 logger = logging.getLogger(__name__)
 
 
 class LMStudioLLM:
-    """LLM interface for LM Studio"""
-    
+    """LLM interface for LM Studio."""
+
     def __init__(
         self,
         base_url: str = None,
         model: str = None,
         temperature: float = None,
-        max_tokens: int = None
+        max_tokens: int = None,
     ):
-        """
-        Initialize LM Studio LLM client
-        
-        Args:
-            base_url: LM Studio API endpoint
-            model: Model name
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-        """
         self.base_url = base_url or LM_STUDIO_CONFIG["base_url"]
         self.model = model or LM_STUDIO_CONFIG["model"]
         self.temperature = temperature or LM_STUDIO_CONFIG["temperature"]
         self.max_tokens = max_tokens or LM_STUDIO_CONFIG["max_tokens"]
-        
-        logger.info("🤖 Initializing LM Studio LLM client...")
-        logger.info(f"  Base URL: {self.base_url}")
-        logger.info(f"  Model: {self.model}")
-        
-        # Test connection
+
+        logger.info(f"[LLM] Connecting to {self.base_url} — model: {self.model}")
         self._test_connection()
-        
-        logger.info("✅ LM Studio LLM client initialized successfully")
-    
+        logger.info("[LLM] Ready")
+
+    # ── Connection ────────────────────────────────────────────────────────────
+
     def _test_connection(self):
-        """Test connection to LM Studio server"""
         try:
-            response = requests.get(
-                f"{self.base_url}/models",
-                timeout=5
-            )
-            if response.status_code == 200:
-                logger.info("✅ Successfully connected to LM Studio")
+            r = requests.get(f"{self.base_url}/models", timeout=5)
+            if r.status_code == 200:
+                logger.info("[LLM] Connected to LM Studio")
             else:
-                logger.warning(f"⚠️  LM Studio responded with status {response.status_code}")
+                logger.warning(f"[LLM] LM Studio responded with status {r.status_code}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"❌ Failed to connect to LM Studio: {e}")
-            logger.error(f"Please ensure LM Studio is running at {self.base_url}")
+            logger.error(f"[LLM] Cannot connect to LM Studio: {e}")
             raise ConnectionError(f"Cannot connect to LM Studio at {self.base_url}")
-    
+
+    # ── Core generate ─────────────────────────────────────────────────────────
+
     def generate(
         self,
         messages: List[Dict[str, str]],
         temperature: float = None,
         max_tokens: int = None,
-        stream: bool = False
+        stream: bool = False,
     ) -> str:
-        """
-        Generate response from LLM
-        
-        Args:
-            messages: List of message dicts with 'role' and 'content'
-            temperature: Override default temperature
-            max_tokens: Override default max_tokens
-            stream: Whether to stream response
-            
-        Returns:
-            Generated text response
-        """
         url = f"{self.base_url}/chat/completions"
-        
         payload = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature or self.temperature,
             "max_tokens": max_tokens or self.max_tokens,
-            "stream": stream
+            "stream": stream,
         }
-        
+
         try:
-            logger.debug(f"Sending request to LM Studio")
-            logger.debug(f"Message count: {len(messages)}")
-            
-            # Log message lengths
             for i, msg in enumerate(messages):
-                logger.debug(f"Message {i} ({msg['role']}): {len(msg['content'])} chars")
-            
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=600  # Increased to 600 seconds for slower GPUs
-            )
-            
-            # Better error handling
+                logger.debug(f"  msg[{i}] role={msg['role']} len={len(msg['content'])}")
+
+            logger.info(f"[LLM] Sending request to {url}...")
+            response = requests.post(url, json=payload, timeout=520)
+
             if response.status_code != 200:
-                error_detail = response.text
-                logger.error(f"LM Studio error response: {error_detail}")
-                
-                # Check if it's a context length issue
-                if "context" in error_detail.lower() or "length" in error_detail.lower():
+                detail = response.text
+                logger.error(f"[LLM] Error response ({response.status_code}): {detail}")
+                if "context" in detail.lower() or "length" in detail.lower():
                     raise ValueError(
-                        "Context length exceeded. Try reducing the number of retrieved chunks "
-                        "or shortening the prompt."
+                        "Context length exceeded. Reduce retrieved chunks or shorten the prompt."
                     )
-            
+                raise ValueError(f"LLM returned error: {detail}")
+
             response.raise_for_status()
-            
-            result = response.json()
-            generated_text = result['choices'][0]['message']['content']
-            
-            logger.debug(f"Received response from LLM ({len(generated_text)} chars)")
-            return generated_text
-            
+            text = response.json()["choices"][0]["message"]["content"]
+            logger.debug(f"[LLM] Response: {len(text)} chars")
+            return text
+
+        except requests.exceptions.Timeout as e:
+            error_msg = f"LM Studio request timed out after 520 seconds. Make sure LM Studio is running at {self.base_url} and the model '{self.model}' is loaded."
+            logger.error(f"[LLM] Timeout: {error_msg}")
+            raise TimeoutError(error_msg)
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"Cannot connect to LM Studio at {self.base_url}. Is LM Studio running? Check config.py for the correct IP and port."
+            logger.error(f"[LLM] Connection error: {error_msg}")
+            raise ConnectionError(error_msg)
         except requests.exceptions.HTTPError as e:
-            logger.error(f"HTTP Error calling LM Studio API: {e}")
-            logger.error(f"Response content: {e.response.text if hasattr(e, 'response') else 'No response'}")
+            logger.error(f"[LLM] HTTP error: {e}")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error calling LM Studio API: {e}")
+            logger.error(f"[LLM] Request error: {e}")
             raise
-    
+
+    # ── Public methods ────────────────────────────────────────────────────────
+
     def answer_question(
         self,
         question: str,
         context: str,
-        system_prompt: str = None
+        system_prompt: str = None,
     ) -> str:
-        """
-        Answer a question based on provided context
-        
-        Args:
-            question: User question
-            context: Retrieved policy context
-            system_prompt: Optional custom system prompt
-            
-        Returns:
-            Answer from LLM
-        """
-        sys_prompt = system_prompt or SYSTEM_PROMPT
-        
-        user_message = USER_PROMPT_TEMPLATE.format(
-            context=context,
-            question=question
-        )
-        
+        """Answer a question from retrieved policy context."""
+        user_message = USER_PROMPT_TEMPLATE.format(context=context, question=question)
         messages = [
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": user_message}
+            {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
+            {"role": "user",   "content": user_message},
         ]
-        
-        logger.info(f"Answering question: '{question}'")
-        response = self.generate(messages)
-        
-        return response
-    
+        logger.info(f"[QA] '{question}'")
+        return self.generate(messages)
+
     def evaluate_eligibility(
         self,
         user_profile: Dict,
         visa_type: str,
-        context: str
+        context: str,
+        country: str = "the destination country",   # NEW — injected by rag_pipeline
     ) -> str:
         """
-        Evaluate visa eligibility based on user profile and policy context
-        
+        Evaluate visa eligibility.
+
         Args:
-            user_profile: User information dict
-            visa_type: Type of visa being evaluated
-            context: Retrieved policy context
-            
-        Returns:
-            Eligibility evaluation from LLM
+            user_profile: Form field values from app.py.
+            visa_type:    Visa type string (may include country suffix added by rag_pipeline).
+            context:      Formatted retrieved policy context.
+            country:      Human-readable country name for the prompt.
         """
-        # Format user profile
-        profile_str = "\n".join([f"{k}: {v}" for k, v in user_profile.items()])
-        
+        profile_str = "\n".join(f"{k}: {v}" for k, v in user_profile.items())
+
         user_message = ELIGIBILITY_PROMPT_TEMPLATE.format(
             context=context,
             user_profile=profile_str,
-            visa_type=visa_type.replace('_', ' ').title()
+            visa_type=visa_type.replace("_", " ").title(),
+            country=country,
         )
-        
+
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message}
+            {"role": "user",   "content": user_message},
         ]
-        
-        logger.info(f"Evaluating eligibility for {visa_type}")
-        response = self.generate(messages, temperature=0.2)  # Lower temp for consistency
-        
-        return response
-    
+
+        logger.info(f"[EVAL] visa={visa_type} country={country}")
+        return self.generate(messages, temperature=0.2)
+
     def chat(
         self,
         user_message: str,
         conversation_history: List[Dict] = None,
-        context: str = None
+        context: str = None,
     ) -> str:
-        """
-        Chat with context awareness
-        
-        Args:
-            user_message: User's message
-            conversation_history: Previous conversation
-            context: Optional context to include
-            
-        Returns:
-            LLM response
-        """
+        """Multi-turn chat with optional RAG context."""
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        
-        # Add conversation history
+
         if conversation_history:
             messages.extend(conversation_history)
-        
-        # Add context if provided
+
         if context:
-            enhanced_message = f"CONTEXT:\n{context}\n\nUSER QUESTION:\n{user_message}"
+            enhanced = f"CONTEXT:\n{context}\n\nUSER QUESTION:\n{user_message}"
         else:
-            enhanced_message = user_message
-        
-        messages.append({"role": "user", "content": enhanced_message})
-        
+            enhanced = user_message
+
+        messages.append({"role": "user", "content": enhanced})
         return self.generate(messages)
 
 
-# Test function
+# ── CLI test ──────────────────────────────────────────────────────────────────
+
 def test_llm():
-    """Test LLM integration"""
-    print("\n" + "="*80)
-    print("🧪 Testing LM Studio LLM Integration")
-    print("="*80)
-    
+    print("\n" + "=" * 70)
+    print(" SwiftVisa — LMStudioLLM test")
+    print("=" * 70)
+
     try:
         llm = LMStudioLLM()
-        
-        # Test 1: Simple question answering
-        print("\n📝 Test 1: Simple Question")
-        print("-" * 80)
-        
-        test_context = """
+
+        # Test 1 — QA
+        print("\n[Test 1] Question answering")
+        context = """
         UK Student Visa Financial Requirements:
-        - You must have at least £1,334 per month for living costs if studying in London
-        - You must have at least £1,023 per month for living costs if studying outside London
-        - You must show you have had these funds for at least 28 consecutive days
+        - At least £1,334/month for living costs in London
+        - At least £1,023/month outside London
+        - Funds must have been held for 28 consecutive days
         """
-        
-        question = "How much money do I need for a student visa if I'm studying in London?"
-        
-        print(f"Question: {question}")
-        print(f"\nContext provided: {test_context[:100]}...")
-        
-        answer = llm.answer_question(question, test_context)
-        print(f"\n🤖 LLM Answer:\n{answer}")
-        
-        # Test 2: Eligibility evaluation
-        print("\n" + "="*80)
-        print("📝 Test 2: Eligibility Evaluation")
-        print("-" * 80)
-        
-        user_profile = {
-            "Age": 25,
-            "Nationality": "Indian",
-            "Education": "Bachelor's Degree in Computer Science",
+        question = "How much money do I need for a student visa in London?"
+        print(f"Q: {question}")
+        print(f"A: {llm.answer_question(question, context)}")
+
+        # Test 2 — Eligibility
+        print("\n[Test 2] Eligibility evaluation")
+        profile = {
+            "Age": 25, "Nationality": "Indian",
+            "Education": "Bachelor's in Computer Science",
             "English Test": "IELTS 7.0",
-            "University Offer": "Yes - University of London",
-            "Financial Proof": "£15,000 in bank account"
+            "University Offer": "Yes — University of London",
+            "Financial Proof": "£15,000",
         }
-        
-        print(f"User Profile:")
-        for k, v in user_profile.items():
-            print(f"  {k}: {v}")
-        
-        evaluation = llm.evaluate_eligibility(
-            user_profile=user_profile,
+        result = llm.evaluate_eligibility(
+            user_profile=profile,
             visa_type="student",
-            context=test_context
+            context=context,
+            country="United Kingdom",
         )
-        
-        print(f"\n🤖 LLM Evaluation:\n{evaluation}")
-        
-        print("\n" + "="*80)
-        print("✅ LLM Integration Test Complete!")
-        print("="*80)
-        
+        print(result)
+
+        print("\n" + "=" * 70)
+        print(" Test complete!")
+
     except Exception as e:
-        print(f"\n❌ Error during testing: {e}")
-        print("\nPlease ensure:")
-        print("1. LM Studio is running")
-        print("2. Server is accessible at http://192.168.1.38:1234")
-        print("3. meta-llama-3-8b-instruct model is loaded")
+        print(f"\nError: {e}")
+        print("Ensure LM Studio is running and the model is loaded.")
 
 
 if __name__ == "__main__":

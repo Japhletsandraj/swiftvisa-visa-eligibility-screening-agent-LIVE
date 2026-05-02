@@ -1,0 +1,24 @@
+{
+  "build_date": "2026-04-09T22:55:03.739459",
+  "model_name": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "total_chunks": 284,
+  "total_vectors": 284,
+  "country": "uk",
+  "display_name": "United Kingdom",
+  "visa_types": [
+    "graduate",
+    "skilled_worker",
+    "health_care_worker",
+    "visitor",
+    "student"
+  ],
+  "chunks_per_visa": {
+    "graduate": 23,
+    "skilled_worker": 98,
+    "health_care_worker": 73,
+    "visitor": 49,
+    "student": 41
+  },
+  "source_docs": 5
+}

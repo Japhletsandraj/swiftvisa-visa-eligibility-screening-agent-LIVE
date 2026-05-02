@@ -1,6 +1,6 @@
 """
 SwiftVisa - Configuration Settings
-Central configuration for all components
+Central configuration for all components (multi-country edition)
 """
 
 import os
@@ -15,10 +15,10 @@ LOGS_DIR = BASE_DIR / "logs"
 
 # LM Studio Configuration
 LM_STUDIO_CONFIG = {
-    "base_url": "http://192.168.1.23:1234/v1",
-    "model": "meta-llama-3.2-3b-instruct",
+    "base_url": "http://192.168.0.103:1234/v1",
+    "model": "llama-3.2-3b-instruct",
     "temperature": 0.3,
-    "max_tokens": 500,  # Reduced from 800 for smaller model
+    "max_tokens": 500,
     "top_p": 0.9,
 }
 
@@ -31,20 +31,27 @@ EMBEDDING_CONFIG = {
 
 # FAISS Configuration
 FAISS_CONFIG = {
-    "index_path": str(VECTORSTORE_DIR / "faiss_index"),
-    "similarity_metric": "cosine",  # cosine or euclidean
+    # Per-country index paths — built by build_vectorstore.py
+    "index_paths": {
+        "uk":          str(VECTORSTORE_DIR / "uk"          / "faiss_index"),
+        "canada":      str(VECTORSTORE_DIR / "canada"      / "faiss_index"),
+        "australia":   str(VECTORSTORE_DIR / "australia"   / "faiss_index"),
+        "new_zealand": str(VECTORSTORE_DIR / "new_zealand" / "faiss_index"),
+    },
+    "similarity_metric": "cosine",
 }
 
 # Retrieval Configuration
 RETRIEVAL_CONFIG = {
-    "top_k": 2,  # Reduced from 3 - less context for smaller model
-    "score_threshold": 0.3,  # Minimum similarity score
-    "rerank": True,  # Whether to rerank results
-    "max_context_chars": 2000,  # Reduced from 3000 for smaller model
+    "top_k": 5,  # Increased from 2 to get more context for LLM
+    "score_threshold": 0.3,
+    "rerank": True,
+    "max_context_chars": 3000,  # Increased to accommodate more chunks
 }
 
-# RAG Prompt Templates
-SYSTEM_PROMPT = """You are an expert UK visa eligibility assistant. Your role is to help users understand their visa eligibility based on official UK government immigration policies.
+# ── Prompt Templates ──────────────────────────────────────────────────────────
+
+SYSTEM_PROMPT = """You are an expert visa eligibility assistant. Your role is to help users understand their visa eligibility based on official immigration policies for the requested country.
 
 INSTRUCTIONS:
 1. Use ONLY the provided policy context to answer questions
@@ -59,7 +66,7 @@ IMPORTANT:
 - Do not provide legal advice
 - Encourage users to verify with official sources for final decisions"""
 
-USER_PROMPT_TEMPLATE = """Based on the following UK visa policy information, please answer the user's question.
+USER_PROMPT_TEMPLATE = """Based on the following visa policy information, please answer the user's question.
 
 POLICY CONTEXT:
 {context}
@@ -69,7 +76,7 @@ USER QUESTION:
 
 Please provide a clear, accurate answer based only on the policy context above. If the context doesn't contain enough information to answer the question, say so."""
 
-ELIGIBILITY_PROMPT_TEMPLATE = """Analyze the user profile against UK visa policy requirements and provide a detailed assessment.
+ELIGIBILITY_PROMPT_TEMPLATE = """Analyze the user profile against the provided visa policy context and provide a detailed assessment.
 
 POLICY CONTEXT:
 {context}
@@ -77,6 +84,7 @@ POLICY CONTEXT:
 USER PROFILE:
 {user_profile}
 
+COUNTRY: {country}
 VISA TYPE: {visa_type}
 
 Provide a comprehensive eligibility evaluation with the following structure:
@@ -84,7 +92,7 @@ verdict: ELIGIBLE / NOT ELIGIBLE / UNCLEAR
 explanation: Detailed reasoning behind the verdict
 1. Eligibility Summary: Brief overall assessment
 2. MISSING REQUIREMENTS: List any critical requirements not met
-3. ADDITIONAL INFORMATION NEEDED: List any unclear or missing information needed for a full
+3. ADDITIONAL INFORMATION NEEDED: List any unclear or missing information needed for a full assessment
 
 Be thorough but honest. If critical requirements are missing, state it clearly. If all requirements appear to be met, say so explicitly."""
 
@@ -98,3 +106,10 @@ LOGGING_CONFIG = {
 # Create directories if they don't exist
 for directory in [DATA_DIR, VECTORSTORE_DIR, MODELS_DIR, LOGS_DIR]:
     directory.mkdir(parents=True, exist_ok=True)
+
+# Create per-country data and vectorstore directories
+SUPPORTED_COUNTRIES = ["uk", "canada", "australia", "new_zealand"]
+
+for country in SUPPORTED_COUNTRIES:
+    (DATA_DIR / f"{country}_policies").mkdir(parents=True, exist_ok=True)
+    (VECTORSTORE_DIR / country / "faiss_index").mkdir(parents=True, exist_ok=True)

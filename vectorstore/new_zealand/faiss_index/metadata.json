@@ -1,0 +1,30 @@
+{
+  "build_date": "2026-04-09T22:55:39.590931",
+  "model_name": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "total_chunks": 198,
+  "total_vectors": 198,
+  "country": "new_zealand",
+  "display_name": "New Zealand",
+  "visa_types": [
+    "accredited_employer_work_visa",
+    "student_visa",
+    "visitor_visa",
+    "post_study_work_visa",
+    "student",
+    "skilled_migrant_category",
+    "visitor",
+    "student_permit"
+  ],
+  "chunks_per_visa": {
+    "accredited_employer_work_visa": 57,
+    "student_visa": 5,
+    "visitor_visa": 27,
+    "post_study_work_visa": 28,
+    "student": 12,
+    "skilled_migrant_category": 39,
+    "visitor": 28,
+    "student_permit": 2
+  },
+  "source_docs": 5
+}

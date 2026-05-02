@@ -9,7 +9,8 @@ from datetime import datetime
 
 from retriever import VisaPolicyRetriever
 from llm_integration import LMStudioLLM
-from config.config import LOGGING_CONFIG
+from config.config import LOGGING_CONFIG, FAISS_CONFIG
+from utils.Country_config import COUNTRY_CONFIG
 
 # Setup logging
 logging.basicConfig(
@@ -22,402 +23,399 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Default country for backwards compatibility
+DEFAULT_COUNTRY = "uk"
+
 
 class SwiftVisaRAG:
-    """Complete RAG pipeline for visa eligibility screening"""
-    
-    def __init__(self):
-        """Initialize RAG pipeline with retriever and LLM"""
-        logger.info(" Initializing SwiftVisa RAG Pipeline...")
-        
-        # Initialize components
-        self.retriever = VisaPolicyRetriever()
+    """
+    Complete RAG pipeline for visa eligibility screening.
+    Supports multiple countries — each gets its own FAISS index.
+    """
+
+    def __init__(self, country: str = DEFAULT_COUNTRY):
+        """
+        Initialize RAG pipeline for a specific country.
+
+        Args:
+            country: Country code (uk | canada | australia | new_zealand).
+                     Defaults to 'uk' for backwards compatibility.
+        """
+        if country not in COUNTRY_CONFIG:
+            raise ValueError(
+                f"Unsupported country '{country}'. "
+                f"Supported: {list(COUNTRY_CONFIG.keys())}"
+            )
+
+        self.country = country
+        self.country_display = COUNTRY_CONFIG[country]["display_name"]
+
+        logger.info(f"[INIT] SwiftVisa RAG Pipeline — {self.country_display}")
+
+        # Resolve the FAISS index path for this country
+        index_path = FAISS_CONFIG["index_paths"].get(country)
+        if not index_path:
+            raise ValueError(f"No FAISS index path configured for country '{country}'")
+
+        # Initialize components — pass country-specific index path to retriever
+        self.retriever = VisaPolicyRetriever(vectorstore_path=index_path)
         self.llm = LMStudioLLM()
-        
+
         # Conversation history for multi-turn conversations
         self.conversation_history = []
-        
-        logger.info(" SwiftVisa RAG Pipeline ready!")
-    
+
+        logger.info(f"[READY] RAG pipeline ready for {self.country_display}")
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
     def answer_question(
         self,
         question: str,
         visa_type: Optional[str] = None,
-        top_k: int = 3
+        top_k: int = 3,
+        country: Optional[str] = None,   # ignored — kept for call-site compatibility
     ) -> Dict:
-        """
-        Answer a visa-related question using RAG
-        
-        Args:
-            question: User's question
-            visa_type: Optional filter for specific visa type
-            top_k: Number of chunks to retrieve
-            
-        Returns:
-            Dictionary with answer and metadata
-        """
-        logger.info(f"Processing question: '{question}'")
-        
-        # Step 1: Retrieve relevant context
+        """Answer a visa-related question using RAG."""
+        logger.info(f"[QA] '{question}' | country={self.country} | visa={visa_type}")
+
         retrieved = self.retriever.retrieve(
             query=question,
             visa_type_filter=visa_type,
             top_k=top_k
         )
-        
+
         if not retrieved:
             return {
-                "answer": "I couldn't find relevant information in the visa policies to answer your question. Please try rephrasing or ask about a specific visa type.",
+                "question": question,
+                "answer": (
+                    "I couldn't find relevant information in the visa policies to answer "
+                    "your question. Please try rephrasing or ask about a specific visa type."
+                ),
                 "sources": [],
-                "retrieved_chunks": 0
+                "retrieved_chunks": 0,
+                "country": self.country,
             }
-        
-        # Step 2: Format context for LLM
+
         context = self.retriever.format_context_for_llm(retrieved)
-        
-        # Step 3: Get answer from LLM
-        answer = self.llm.answer_question(
-            question=question,
-            context=context
-        )
-        
-        # Step 4: Prepare response
-        sources = [
-            {
-                "visa_type": chunk['metadata'].get('visa_type', 'unknown'),
-                "source_file": chunk['metadata'].get('source_file', 'unknown'),
-                "relevance_score": chunk['score']
-            }
-            for chunk in retrieved
-        ]
-        
+        answer = self.llm.answer_question(question=question, context=context)
+
         return {
             "question": question,
             "answer": answer,
-            "sources": sources,
+            "sources": self._format_sources(retrieved),
             "retrieved_chunks": len(retrieved),
             "visa_type_filter": visa_type,
-            "timestamp": datetime.now().isoformat()
+            "country": self.country,
+            "timestamp": datetime.now().isoformat(),
         }
-    
+
     def evaluate_eligibility(
         self,
         user_profile: Dict,
-        visa_type: str
+        visa_type: str,
+        country: Optional[str] = None,   # ignored — kept for call-site compatibility
     ) -> Dict:
         """
-        Evaluate user's visa eligibility
-        
+        Evaluate a user's visa eligibility against policy documents.
+
         Args:
-            user_profile: Dictionary with user information
-            visa_type: Type of visa to evaluate
-            
-        Returns:
-            Dictionary with eligibility evaluation
+            user_profile: Dictionary of form field values from app.py.
+            visa_type:    Visa type key (e.g. 'student', 'student_permit').
+            country:      Accepted but ignored; the instance already knows its country.
         """
-        logger.info(f"Evaluating eligibility for {visa_type}")
-        logger.info(f"User profile: {json.dumps(user_profile, indent=2)}")
-        
-        # Step 1: Create query from user profile and visa type
-        query = f"What are the requirements for {visa_type.replace('_', ' ')} visa?"
-        
-        # Step 2: Retrieve relevant policy information
-        retrieved = self.retriever.retrieve(
-            query=query,
-            visa_type_filter=visa_type,
-            top_k=5  # Reduced from 7 to prevent context overflow
+        logger.info(
+            f"[EVAL] country={self.country} visa={visa_type}\n"
+            f"{json.dumps(user_profile, indent=2)}"
         )
-        
+
+        query = (
+            f"What are the eligibility requirements and criteria for a "
+            f"{visa_type.replace('_', ' ')} in {self.country_display}?"
+        )
+
+        user_context = {**user_profile, "visa_type": visa_type, "country": self.country}
+        retrieved = self.retriever.retrieve_with_context(
+            query=query,
+            user_context=user_context,
+            top_k=5
+        )
+
         if not retrieved:
             return {
-                "evaluation": f"No policy information found for {visa_type} visa.",
+                "evaluation": (
+                    f"No policy information found for the {visa_type.replace('_', ' ')} "
+                    f"({self.country_display}). Ensure the vector store has been built "
+                    f"for this country."
+                ),
                 "eligibility": "Unknown",
-                "sources": []
+                "sources": [],
+                "country": self.country,
             }
-        
-        # Step 3: Format context
+
         context = self.retriever.format_context_for_llm(retrieved)
-        
-        # Step 4: Get eligibility evaluation from LLM
+
         evaluation = self.llm.evaluate_eligibility(
             user_profile=user_profile,
-            visa_type=visa_type,
-            context=context
+            visa_type=f"{visa_type} ({self.country_display})",
+            context=context,
+            country=self.country_display,
         )
-        
-        # Step 5: Prepare response
-        sources = [
-            {
-                "visa_type": chunk['metadata'].get('visa_type', 'unknown'),
-                "source_file": chunk['metadata'].get('source_file', 'unknown'),
-                "relevance_score": chunk['score']
-            }
-            for chunk in retrieved
-        ]
-        
+
         return {
             "visa_type": visa_type,
             "user_profile": user_profile,
             "evaluation": evaluation,
-            "sources": sources,
+            "sources": self._format_sources(retrieved),
             "retrieved_chunks": len(retrieved),
-            "timestamp": datetime.now().isoformat()
+            "country": self.country,
+            "timestamp": datetime.now().isoformat(),
         }
-    
+
     def chat(
         self,
         user_message: str,
         use_retrieval: bool = True,
-        visa_type: Optional[str] = None
+        visa_type: Optional[str] = None,
+        country: Optional[str] = None,   # ignored — kept for call-site compatibility
     ) -> Dict:
-        """
-        Chat interface with optional retrieval
-        
-        Args:
-            user_message: User's message
-            use_retrieval: Whether to use RAG retrieval
-            visa_type: Optional visa type filter
-            
-        Returns:
-            Dictionary with response and metadata
-        """
-        logger.info(f"Chat message: '{user_message}'")
-        
+        """Chat interface with optional RAG retrieval."""
+        logger.info(f"[CHAT] country={self.country} '{user_message}'")
+
         context = None
         retrieved_chunks = 0
-        
-        # Retrieve context if enabled
+
         if use_retrieval:
             retrieved = self.retriever.retrieve(
                 query=user_message,
                 visa_type_filter=visa_type,
                 top_k=5
             )
-            
             if retrieved:
                 context = self.retriever.format_context_for_llm(retrieved)
                 retrieved_chunks = len(retrieved)
-        
-        # Get response from LLM
+
         response = self.llm.chat(
             user_message=user_message,
             conversation_history=self.conversation_history,
             context=context
         )
-        
-        # Update conversation history
+
         self.conversation_history.append({"role": "user", "content": user_message})
         self.conversation_history.append({"role": "assistant", "content": response})
-        
+
         # Keep only last 10 messages
         if len(self.conversation_history) > 10:
             self.conversation_history = self.conversation_history[-10:]
-        
+
         return {
             "user_message": user_message,
             "response": response,
             "retrieved_chunks": retrieved_chunks,
-            "timestamp": datetime.now().isoformat()
+            "country": self.country,
+            "timestamp": datetime.now().isoformat(),
         }
-    
+
     def reset_conversation(self):
-        """Reset conversation history"""
+        """Reset conversation history."""
         self.conversation_history = []
-        logger.info("Conversation history reset")
-    
+        logger.info(f"[RESET] Conversation history cleared for {self.country_display}")
+
     def get_statistics(self) -> Dict:
-        """Get pipeline statistics"""
+        """Return pipeline statistics."""
         return {
+            "country": self.country,
+            "country_display": self.country_display,
             "retriever_stats": self.retriever.get_statistics(),
             "llm_config": {
                 "model": self.llm.model,
                 "base_url": self.llm.base_url,
-                "temperature": self.llm.temperature
+                "temperature": self.llm.temperature,
             },
-            "conversation_length": len(self.conversation_history)
+            "conversation_length": len(self.conversation_history),
         }
 
+    # ── Internal helpers ──────────────────────────────────────────────────────
 
-# Interactive testing
-def interactive_test():
-    """Interactive testing interface"""
-    print("\n" + "="*80)
-    print(" SwiftVisa RAG Pipeline - Interactive Test")
-    print("="*80)
-    print("\nCommands:")
-    print("  'q <question>' - Ask a question")
-    print("  'e' - Evaluate eligibility (will prompt for details)")
-    print("  'stats' - Show statistics")
-    print("  'reset' - Reset conversation")
-    print("  'quit' - Exit")
-    print("="*80)
-    
+    def _format_sources(self, retrieved: List[Dict]) -> List[Dict]:
+        return [
+            {
+                "visa_type": chunk["metadata"].get("visa_type", "unknown"),
+                "source_file": chunk["metadata"].get("source_file", "unknown"),
+                "relevance_score": chunk["score"],
+            }
+            for chunk in retrieved
+        ]
+
+
+# ── CLI helpers (interactive + automated tests) ───────────────────────────────
+
+def _pick_country() -> str:
+    print("\nSelect country:")
+    options = list(COUNTRY_CONFIG.keys())
+    for i, code in enumerate(options, 1):
+        print(f"  {i}. {COUNTRY_CONFIG[code]['flag']} {COUNTRY_CONFIG[code]['display_name']}")
+    choice = input("Choice: ").strip()
     try:
-        rag = SwiftVisaRAG()
+        return options[int(choice) - 1]
+    except (ValueError, IndexError):
+        print("Invalid — defaulting to UK")
+        return "uk"
+
+
+def _visa_menu(country: str) -> Dict[str, str]:
+    visa_types = COUNTRY_CONFIG[country]["visa_types"]
+    return {str(i + 1): vt for i, vt in enumerate(visa_types)}
+
+
+def interactive_test():
+    print("\n" + "=" * 80)
+    print(" SwiftVisa RAG Pipeline — Interactive Test")
+    print("=" * 80)
+    print("\nCommands: 'q <question>'  'e' (evaluate)  'stats'  'reset'  'country'  'quit'")
+    print("=" * 80)
+
+    country = _pick_country()
+    try:
+        rag = SwiftVisaRAG(country=country)
     except Exception as e:
-        print(f"\n Error initializing RAG pipeline: {e}")
+        print(f"\nError initialising RAG pipeline: {e}")
         return
-    
+
     while True:
         try:
             user_input = input("\n You: ").strip()
-            
             if not user_input:
                 continue
-            
-            if user_input.lower() == 'quit':
-                print("\n Goodbye!")
+
+            if user_input.lower() == "quit":
+                print("\nGoodbye!")
                 break
-            
-            elif user_input.lower() == 'stats':
-                stats = rag.get_statistics()
-                print(f"\n Pipeline Statistics:")
-                print(json.dumps(stats, indent=2))
-            
-            elif user_input.lower() == 'reset':
+
+            elif user_input.lower() == "country":
+                country = _pick_country()
+                rag = SwiftVisaRAG(country=country)
+                print(f"Switched to {COUNTRY_CONFIG[country]['display_name']}")
+
+            elif user_input.lower() == "stats":
+                print(json.dumps(rag.get_statistics(), indent=2))
+
+            elif user_input.lower() == "reset":
                 rag.reset_conversation()
-                print(" Conversation reset")
-            
-            elif user_input.lower().startswith('q '):
+                print("Conversation reset")
+
+            elif user_input.lower().startswith("q "):
                 question = user_input[2:].strip()
-                
-                # Ask for visa type filter
-                print("\nVisa type filter (press Enter for all):")
-                print("  student | graduate | skilled_worker | health_care_worker | visitor")
-                visa_filter = input("Filter: ").strip().lower() or None
-                
+                visa_map = _visa_menu(country)
+                print("\nVisa type filter (Enter = all):")
+                for k, v in visa_map.items():
+                    print(f"  {k}. {v}")
+                pick = input("Filter: ").strip()
+                visa_filter = visa_map.get(pick)
                 result = rag.answer_question(question, visa_type=visa_filter)
-                
-                print(f"\n Answer:")
+                print(f"\nAnswer ({result['retrieved_chunks']} sources):")
                 print("-" * 80)
-                print(result['answer'])
-                print("-" * 80)
-                print(f"\n Sources: {result['retrieved_chunks']} chunks retrieved")
-                for source in result['sources'][:3]:
-                    print(f"  • {source['visa_type']} - {source['source_file']} (score: {source['relevance_score']:.3f})")
-            
-            elif user_input.lower() == 'e':
-                print("\n Eligibility Evaluation")
-                print("-" * 80)
-                
-                # Select visa type
+                print(result["answer"])
+
+            elif user_input.lower() == "e":
+                visa_map = _visa_menu(country)
                 print("\nSelect visa type:")
-                print("  1. Student Visa")
-                print("  2. Graduate Visa")
-                print("  3. Skilled Worker Visa")
-                print("  4. Health Care Worker Visa")
-                print("  5. Standard Visitor Visa")
-                
-                visa_choice = input("Choice (1-5): ").strip()
-                visa_map = {
-                    "1": "student",
-                    "2": "graduate",
-                    "3": "skilled_worker",
-                    "4": "health_care_worker",
-                    "5": "visitor"
-                }
-                
-                visa_type = visa_map.get(visa_choice)
+                for k, v in visa_map.items():
+                    print(f"  {k}. {v}")
+                pick = input("Choice: ").strip()
+                visa_type = visa_map.get(pick)
                 if not visa_type:
-                    print("Invalid choice")
-                    continue
-                
-                # Collect user profile
-                print(f"\nEnter details for {visa_type.replace('_', ' ').title()} Visa:")
+                    print("Invalid choice"); continue
+
+                print(f"\nEnter profile details for {visa_type.replace('_', ' ').title()}:")
                 user_profile = {
                     "Age": input("Age: ").strip(),
                     "Nationality": input("Nationality: ").strip(),
                     "Education": input("Education: ").strip(),
                     "Employment Status": input("Employment Status: ").strip(),
                 }
-                
-                if visa_type in ["student", "graduate"]:
-                    user_profile["English Test Score"] = input("English Test Score (e.g., IELTS 6.5): ").strip()
-                    user_profile["Financial Proof"] = input("Financial Proof (amount): ").strip()
-                
-                if visa_type in ["skilled_worker", "health_care_worker"]:
-                    user_profile["Job Offer"] = input("Job Offer (Yes/No): ").strip()
-                    user_profile["Salary"] = input("Salary: ").strip()
-                
-                # Evaluate
-                print("\n Evaluating eligibility...")
+                print("\nEvaluating…")
                 result = rag.evaluate_eligibility(user_profile, visa_type)
-                
-                print(f"\n Eligibility Evaluation:")
+                print("\n" + "=" * 80)
+                print(result["evaluation"])
                 print("=" * 80)
-                print(result['evaluation'])
-                print("=" * 80)
-                print(f"\n Based on {result['retrieved_chunks']} policy documents")
-            
+                print(f"Based on {result['retrieved_chunks']} policy documents")
+
             else:
-                # Default chat
                 result = rag.chat(user_input)
                 print(f"\n {result['response']}")
-        
+
         except KeyboardInterrupt:
-            print("\n\n Goodbye!")
+            print("\n\nGoodbye!")
             break
         except Exception as e:
-            print(f"\n Error: {e}")
+            print(f"\nError: {e}")
             logger.exception("Error in interactive test")
 
 
-# Automated test
 def automated_test():
-    """Run automated tests"""
-    print("\n" + "="*80)
-    print(" SwiftVisa RAG Pipeline - Automated Tests")
-    print("="*80)
-    
-    try:
-        rag = SwiftVisaRAG()
-        
-        # Test 1: Question Answering
-        print("\n Test 1: Question Answering")
-        print("-" * 80)
-        
-        questions = [
-            ("What are the financial requirements for a student visa?", "student"),
-            ("Can I work with a graduate visa?", "graduate"),
-            ("What is the minimum salary for a skilled worker visa?", "skilled_worker"),
-        ]
-        
-        for question, visa_type in questions:
-            print(f"\n {question}")
+    print("\n" + "=" * 80)
+    print(" SwiftVisa RAG Pipeline — Automated Tests")
+    print("=" * 80)
+
+    test_cases = [
+        {
+            "country": "uk",
+            "questions": [
+                ("What are the financial requirements for a student visa?", "student"),
+                ("Can I work with a graduate visa?", "graduate"),
+                ("What is the minimum salary for a skilled worker visa?", "skilled_worker"),
+            ],
+            "profile": {
+                "Age": "24", "Nationality": "Indian",
+                "Education": "Bachelor's Degree",
+                "English Test Score": "IELTS 7.0",
+                "Financial Proof": "£12,000",
+            },
+            "eval_visa": "student",
+        },
+        {
+            "country": "canada",
+            "questions": [
+                ("What are the requirements for a study permit?", "student_permit"),
+                ("What is Express Entry?", "express_entry"),
+            ],
+            "profile": {
+                "Age": "26", "Nationality": "Nigerian",
+                "Education": "Bachelor's Degree",
+                "Language Test": "IELTS 7.5",
+                "Financial Proof": "CAD 15,000",
+            },
+            "eval_visa": "student_permit",
+        },
+    ]
+
+    for tc in test_cases:
+        country = tc["country"]
+        print(f"\n{'='*70}")
+        print(f" Testing: {COUNTRY_CONFIG[country]['flag']} {COUNTRY_CONFIG[country]['display_name']}")
+        print(f"{'='*70}")
+
+        try:
+            rag = SwiftVisaRAG(country=country)
+        except Exception as e:
+            print(f"  Skipped — could not load RAG: {e}")
+            continue
+
+        for question, visa_type in tc["questions"]:
+            print(f"\n Q: {question}")
             result = rag.answer_question(question, visa_type=visa_type)
-            print(f" Answer ({result['retrieved_chunks']} sources):")
-            print(result['answer'][:300] + "...")
-        
-        # Test 2: Eligibility Evaluation
-        print("\n" + "="*80)
-        print(" Test 2: Eligibility Evaluation")
-        print("-" * 80)
-        
-        test_profile = {
-            "Age": "24",
-            "Nationality": "Indian",
-            "Education": "Bachelor's Degree",
-            "English Test Score": "IELTS 7.0",
-            "Financial Proof": "£12,000"
-        }
-        
-        print(f"\nUser Profile: {json.dumps(test_profile, indent=2)}")
-        result = rag.evaluate_eligibility(test_profile, "student")
-        print(f"\n Evaluation:")
-        print(result['evaluation'][:400] + "...")
-        
-        print("\n" + "="*80)
-        print(" All Tests Complete!")
-        print("="*80)
-        
-    except Exception as e:
-        print(f"\n Error: {e}")
-        logger.exception("Error in automated test")
+            print(f" A ({result['retrieved_chunks']} sources): {result['answer'][:250]}…")
+
+        print(f"\n Eligibility eval — {tc['eval_visa']}:")
+        result = rag.evaluate_eligibility(tc["profile"], tc["eval_visa"])
+        print(result["evaluation"][:400] + "…")
+
+    print("\n" + "=" * 80)
+    print(" All tests complete!")
+    print("=" * 80)
 
 
 if __name__ == "__main__":
-    import sys
-    
     if len(sys.argv) > 1 and sys.argv[1] == "auto":
         automated_test()
     else:

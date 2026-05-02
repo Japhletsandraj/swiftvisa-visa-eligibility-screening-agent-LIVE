@@ -1,0 +1,26 @@
+{
+  "build_date": "2026-04-09T22:55:11.341708",
+  "model_name": "all-MiniLM-L6-v2",
+  "embedding_dim": 384,
+  "total_chunks": 154,
+  "total_vectors": 154,
+  "country": "canada",
+  "display_name": "Canada",
+  "visa_types": [
+    "express_entry",
+    "work_permit",
+    "student_permit",
+    "post_graduation_work_permit",
+    "visitor",
+    "visitor_visa"
+  ],
+  "chunks_per_visa": {
+    "express_entry": 64,
+    "work_permit": 25,
+    "student_permit": 6,
+    "post_graduation_work_permit": 2,
+    "visitor": 6,
+    "visitor_visa": 51
+  },
+  "source_docs": 5
+}
