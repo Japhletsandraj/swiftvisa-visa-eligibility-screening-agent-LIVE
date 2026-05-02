@@ -5,6 +5,10 @@ Central configuration for all components (multi-country edition)
 
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
@@ -13,13 +17,13 @@ VECTORSTORE_DIR = BASE_DIR / "vectorstore"
 MODELS_DIR = BASE_DIR / "models"
 LOGS_DIR = BASE_DIR / "logs"
 
-# LM Studio Configuration
+# LM Studio Configuration — supports environment variables for deployment
 LM_STUDIO_CONFIG = {
-    "base_url": "http://192.168.0.103:1234/v1",
-    "model": "llama-3.2-3b-instruct",
-    "temperature": 0.3,
-    "max_tokens": 500,
-    "top_p": 0.9,
+    "base_url": os.getenv("LM_STUDIO_BASE_URL", "http://192.168.0.103:1234/v1"),
+    "model": os.getenv("LM_STUDIO_MODEL", "llama-3.2-3b-instruct"),
+    "temperature": float(os.getenv("LM_STUDIO_TEMPERATURE", "0.3")),
+    "max_tokens": int(os.getenv("LM_STUDIO_MAX_TOKENS", "500")),
+    "top_p": float(os.getenv("LM_STUDIO_TOP_P", "0.9")),
 }
 
 # Embedding Model Configuration

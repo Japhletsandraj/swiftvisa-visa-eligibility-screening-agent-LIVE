@@ -3,9 +3,11 @@ import sys
 import os
 from datetime import date
 from PIL import Image
+from pathlib import Path
 
-sys.path.append(os.path.join(os.path.dirname(__file__), "scripts"))
-sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
+# Correct path setup for base directory
+BASE_DIR = Path(__file__).parent.parent
+sys.path.insert(0, str(BASE_DIR))
 
 from rag_pipeline import SwiftVisaRAG
 from utils.form_fields import COMMON_FIELDS, VISA_FIELDS_MAP, get_visa_fields
