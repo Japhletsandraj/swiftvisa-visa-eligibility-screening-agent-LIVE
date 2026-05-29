@@ -358,7 +358,152 @@ footer { visibility: hidden; }
 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
 
+def render_verdict_banner(status, title, description):
+    """Render the verdict banner with styling based on status."""
+    st.markdown(f"""
+    <div class="verdict-banner {status.lower()}">
+        <div class="verdict-badge">ASSESSMENT RESULT</div>
+        <div class="verdict-title">{title}</div>
+        <div class="verdict-summary">{description}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
+def render_info_cards(selected_country, visa_type, status):
+    """Render key information cards (destination, visa type, status)."""
+    country_cfg = SUPPORTED_COUNTRIES.get(selected_country, {})
+    flag = country_cfg.get("flag", "")
+    display_name = country_cfg.get("display_name", selected_country)
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="card-header">
+                <div class="card-icon">🌍</div>
+                <div class="card-title">Destination</div>
+            </div>
+            <div style="font-size: 18px; font-weight: 700; color: #002CA6;">
+                {flag} {display_name}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        visa_display = visa_type.replace('_', ' ').title()
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="card-header">
+                <div class="card-icon">📋</div>
+                <div class="card-title">Visa Type</div>
+            </div>
+            <div style="font-size: 18px; font-weight: 700; color: #002CA6;">
+                {visa_display}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        status_colors = {"ELIGIBLE": "#059669", "NOT ELIGIBLE": "#DC2626", "NEEDS REVIEW": "#F59E0B"}
+        status_icons = {"ELIGIBLE": "✓", "NOT ELIGIBLE": "✗", "NEEDS REVIEW": "!"}
+        status_color = status_colors.get(status, "#4B5563")
+        status_icon = status_icons.get(status, "?")
+        
+        st.markdown(f"""
+        <div class="dashboard-card">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <div class="card-title">Your Status</div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <span style="font-size: 24px; font-weight: 800; color: {status_color};">{status_icon}</span>
+                <span style="font-size: 16px; font-weight: 700; color: {status_color};">{status}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+
+def render_requirements_section(title, icon, items, section_class="requirements-section"):
+    """Render a requirements section with a list of items."""
+    st.markdown(f"""
+    <div class="{section_class}">
+        <div class="requirements-header">
+            <span>{icon}</span>
+            <span>{title}</span>
+        </div>
+        <ul class="requirements-list">
+    """, unsafe_allow_html=True)
+    
+    for item in items:
+        st.markdown(f"""
+        <li>{item}</li>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("</ul></div>", unsafe_allow_html=True)
+
+
+def render_next_steps(status, country_cfg):
+    """Render the next steps section based on eligibility status."""
+    next_steps_configs = {
+        "ELIGIBLE": {
+            "border_color": "#059669",
+            "text_color": "#059669",
+            "icon": "✓",
+            "title": "Next Steps",
+            "steps": [
+                ("<strong>Prepare Documentation:</strong>", "Gather all required documents including passport, financial statements, and supporting letters."),
+                ("<strong>Complete Application:</strong>", "Fill out the official application form from the immigration authority."),
+                ("<strong>Submit Application:</strong>", "Submit your application through the official portal with all required documents."),
+                ("<strong>Track Status:</strong>", "Monitor your application status through the official tracking system."),
+            ]
+        },
+        "NOT ELIGIBLE": {
+            "border_color": "#DC2626",
+            "text_color": "#DC2626",
+            "icon": "✗",
+            "title": "Recommended Actions",
+            "steps": [
+                ("<strong>Address Missing Requirements:</strong>", "Work on fulfilling the unmet requirements listed above."),
+                ("<strong>Improve Financial Position:</strong>", "If funds are insufficient, consider additional savings or financial support."),
+                ("<strong>Seek Professional Advice:</strong>", "Consult with an immigration advisor for personalized guidance."),
+                ("<strong>Reapply When Ready:</strong>", "Once requirements are met, you can reapply for the visa."),
+            ]
+        },
+        "NEEDS REVIEW": {
+            "border_color": "#F59E0B",
+            "text_color": "#B45309",
+            "icon": "!",
+            "title": "What to Do Next",
+            "steps": [
+                ("<strong>Clarify Requirements:</strong>", "Provide additional information or documentation for items marked as unclear."),
+                ("<strong>Contact Immigration Office:</strong>", "Reach out to clarify any ambiguous requirements."),
+                ("<strong>Verify Documents:</strong>", "Double-check that all supporting documents are valid and current."),
+            ]
+        }
+    }
+    
+    config = next_steps_configs.get(status, next_steps_configs["NEEDS REVIEW"])
+    
+    st.markdown(f"""
+    <div class="requirements-section" style="border-left: 4px solid {config['border_color']};">
+        <div class="requirements-header" style="color: {config['text_color']};">
+            <span>{config['icon']}</span>
+            <span>{config['title']}</span>
+        </div>
+        <ol style="margin: 0; padding-left: 1.5rem; color: #4B5563; font-size: 13px; line-height: 1.8;">
+    """, unsafe_allow_html=True)
+    
+    for label, description in config["steps"]:
+        st.markdown(f"""
+        <li style="margin-bottom: 0.75rem;">{label} {description}</li>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("</ol></div>", unsafe_allow_html=True)
+
+
 def crop_image(image_path, target_width, target_height):
+    """Crop and resize an image to target dimensions."""
     try:
         img = Image.open(image_path)
         img_ratio    = img.width / img.height
@@ -726,20 +871,23 @@ if submit:
             rag    = get_rag(selected_country)
             result = rag.evaluate_eligibility(profile, visa_type)
 
-        except (TimeoutError, ConnectionError) as e:
-            st.error(f"⚠️ LM Studio Connection Issue: {str(e)}")
-            st.info("""
+        except (TimeoutError, ConnectionError, ValueError) as e:
+            st.error(f"⚠️ ChatAnywhere Connection / Configuration Issue: {str(e)}")
+            
+            from config.config import CHATANYWHERE_CONFIG
+            api_key_status = "Configured (Masked)" if CHATANYWHERE_CONFIG.get("api_key") else "⚠️ NOT CONFIGURED"
+            
+            st.info(f"""
 **Troubleshooting:**
-1. Make sure LM Studio is running
-2. Check that the model 'llama-3.2-3b-instruct' is loaded
-3. Verify the IP address in config.py is correct (currently: http://192.168.0.104:1234)
-4. Check your network connection
+1. **API Key:** Verify that you have added `CHATANYWHERE_API_KEY` to your `.env` file in the project root.
+2. **Base URL:** Ensure `CHATANYWHERE_BASE_URL` in `config.py` or `.env` is correct (default is `https://api.chatanywhere.org/v1`).
+3. **Internet Connection:** Verify that your system is connected to the internet and can access external APIs.
+4. **Limits/Quota:** Ensure your ChatAnywhere API key has sufficient usage quota/credits.
 
 **Current Configuration:**
-- Base URL: http://192.168.0.104:1234/v1
-- Model: llama-3.2-3b-instruct
-
-Please verify these details match your LM Studio setup.
+- **Base URL:** `{CHATANYWHERE_CONFIG.get('base_url')}`
+- **Model:** `{CHATANYWHERE_CONFIG.get('model')}`
+- **API Key Status:** `{api_key_status}`
             """)
             import traceback
             with st.expander("Technical Details"):
@@ -758,7 +906,7 @@ Please verify these details match your LM Studio setup.
     status, cls = parse_eligibility(result["evaluation"])
     sections = extract_sections(result["evaluation"])
 
-    # ── PROFESSIONAL VERDICT BANNER ────────────────────────────────────────
+    # ── VERDICT BANNER ─────────────────────────────────────────────────────
     verdict_mapping = {
         "ELIGIBLE": ("eligible", "✓ You Qualify", "Based on the information provided, you meet the requirements for this visa type. Proceed with confidence toward your application."),
         "NOT ELIGIBLE": ("error", "✗ Additional Requirements Needed", "You do not currently meet all the mandatory requirements. Review the missing requirements below and address them."),
@@ -766,69 +914,12 @@ Please verify these details match your LM Studio setup.
     }
     
     banner_class, banner_title, banner_desc = verdict_mapping.get(status, ("warning", "⚠ Assessment Complete", sections.get('explanation', "")))
-
-    st.markdown(f"""
-    <div class="verdict-banner {banner_class}">
-        <div class="verdict-badge">ASSESSMENT RESULT</div>
-        <div class="verdict-title">{banner_title}</div>
-        <div class="verdict-summary">{banner_desc}</div>
-    </div>
-    """, unsafe_allow_html=True)
+    
+    render_verdict_banner(status, banner_title, banner_desc)
 
     # ── KEY INFORMATION CARDS ──────────────────────────────────────────────
     st.markdown("")
-    
-    country_cfg = SUPPORTED_COUNTRIES.get(selected_country, {})
-    flag = country_cfg.get("flag", "")
-    display_name = country_cfg.get("display_name", selected_country)
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="card-header">
-                <div class="card-icon">🌍</div>
-                <div class="card-title">Destination</div>
-            </div>
-            <div style="font-size: 18px; font-weight: 700; color: #002CA6;">
-                {flag} {display_name}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        visa_display = visa_type.replace('_', ' ').title()
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="card-header">
-                <div class="card-icon">📋</div>
-                <div class="card-title">Visa Type</div>
-            </div>
-            <div style="font-size: 18px; font-weight: 700; color: #002CA6;">
-                {visa_display}
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        status_colors = {"ELIGIBLE": "#059669", "NOT ELIGIBLE": "#DC2626", "NEEDS REVIEW": "#F59E0B"}
-        status_icons = {"ELIGIBLE": "✓", "NOT ELIGIBLE": "✗", "NEEDS REVIEW": "!"}
-        status_color = status_colors.get(status, "#4B5563")
-        status_icon = status_icons.get(status, "?")
-        
-        st.markdown(f"""
-        <div class="dashboard-card">
-            <div class="card-header">
-                <div class="card-icon">📊</div>
-                <div class="card-title">Your Status</div>
-            </div>
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <span style="font-size: 24px; font-weight: 800; color: {status_color};">{status_icon}</span>
-                <span style="font-size: 16px; font-weight: 700; color: {status_color};">{status}</span>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+    render_info_cards(selected_country, visa_type, status)
 
     # ── REQUIREMENTS ANALYSIS ──────────────────────────────────────────────
     st.markdown("")
@@ -838,107 +929,85 @@ Please verify these details match your LM Studio setup.
         
         with col_left:
             if sections["missing_requirements"]:
-                st.markdown(f"""
-                <div class="requirements-section">
-                    <div class="requirements-header">
-                        <span>🚫</span>
-                        <span>Missing/Unmet Requirements</span>
-                    </div>
-                    <ul class="requirements-list">
-                """, unsafe_allow_html=True)
-                
-                for req in sections["missing_requirements"]:
-                    st.markdown(f"""
-                    <li>
-                        {req}
-                    </li>
-                    """, unsafe_allow_html=True)
-                
-                st.markdown("</ul></div>", unsafe_allow_html=True)
+                render_requirements_section(
+                    "Missing/Unmet Requirements",
+                    "🚫",
+                    sections["missing_requirements"]
+                )
         
         with col_right:
             if sections["additional_info"]:
-                st.markdown(f"""
-                <div class="requirements-section">
-                    <div class="requirements-header">
-                        <span>📝</span>
-                        <span>Additional Information Needed</span>
-                    </div>
-                    <ul class="requirements-list">
-                """, unsafe_allow_html=True)
-                
-                for info in sections["additional_info"]:
-                    st.markdown(f"""
-                    <li>
-                        {info}
-                    </li>
-                    """, unsafe_allow_html=True)
-                
-                st.markdown("</ul></div>", unsafe_allow_html=True)
+                render_requirements_section(
+                    "Additional Information Needed",
+                    "📝",
+                    sections["additional_info"]
+                )
     
     # ── ASSESSMENT SUMMARY ─────────────────────────────────────────────────
     st.markdown("")
+    
+    # Calculate summary statistics
+    total_requirements = len(sections.get("missing_requirements", [])) + len(sections.get("additional_info", []))
+    missing_count = len(sections.get("missing_requirements", []))
+    unclear_count = len(sections.get("additional_info", []))
+    met_count = max(0, total_requirements - missing_count - unclear_count) if total_requirements > 0 else 0
+    
+    summary_explanation = sections.get('explanation') or "Based on the information you provided and official visa requirements, here is your eligibility assessment. Please review each section carefully and ensure all required documentation is prepared."
+    
     st.markdown(f"""
     <div class="requirements-section">
         <div class="requirements-header">
             <span>📋</span>
             <span>Assessment Summary</span>
         </div>
-        <div style="font-size: 14px; line-height: 1.8; color: #4B5563; padding: 1rem;">
-            {sections['explanation'] or "Based on the information you provided and official visa requirements, here is your eligibility assessment. Please review each section carefully and ensure all required documentation is prepared."}
+        
+        <!-- Summary Statistics -->
+        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="background: #ECFDF5; border-radius: 8px; padding: 1rem; border-left: 3px solid #059669;">
+                <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #047857; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Requirements Met</div>
+                <div style="font-size: 24px; font-weight: 800; color: #047857;">
+                    {met_count}/{total_requirements if total_requirements > 0 else 0}
+                </div>
+            </div>
+            <div style="background: #FEE2E2; border-radius: 8px; padding: 1rem; border-left: 3px solid #DC2626;">
+                <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #B91C1C; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Missing</div>
+                <div style="font-size: 24px; font-weight: 800; color: #B91C1C;">
+                    {missing_count}
+                </div>
+            </div>
+            <div style="background: #FFFBF0; border-radius: 8px; padding: 1rem; border-left: 3px solid #D97706;">
+                <div style="font-size: 12px; font-weight: 600; text-transform: uppercase; color: #B45309; letter-spacing: 0.5px; margin-bottom: 0.5rem;">Needs Clarification</div>
+                <div style="font-size: 24px; font-weight: 800; color: #B45309;">
+                    {unclear_count}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Detailed Explanation -->
+        <div style="background: #F9FAFB; border-radius: 8px; padding: 1rem; border-left: 3px solid #93C5FD; margin-bottom: 1rem;">
+            <div style="font-size: 13px; font-weight: 600; color: #1E3A8A; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">Assessment Overview</div>
+            <div style="font-size: 13px; line-height: 1.8; color: #4B5563;">
+                {summary_explanation}
+            </div>
+        </div>
+        
+        <!-- Key Takeaways -->
+        <div style="background: #EFF6FF; border-radius: 8px; padding: 1rem;">
+            <div style="font-size: 13px; font-weight: 600; color: #002CA6; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.75rem;">Key Points to Remember</div>
+            <ul style="margin: 0; padding-left: 1.5rem; color: #1F2933; font-size: 13px; line-height: 1.7;">
+                <li style="margin-bottom: 0.5rem;"><strong>Thorough Review:</strong> Carefully review all identified gaps and missing requirements.</li>
+                <li style="margin-bottom: 0.5rem;"><strong>Documentation:</strong> Prepare all necessary supporting documents before submission.</li>
+                <li style="margin-bottom: 0.5rem;"><strong>Verification:</strong> Verify this assessment against official requirements on the immigration portal.</li>
+                <li><strong>Professional Help:</strong> Consider consulting with an immigration specialist for complex cases.</li>
+            </ul>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     # ── NEXT STEPS & RECOMMENDATIONS ────────────────────────────────────────
     st.markdown("")
-    
-    if status == "ELIGIBLE":
-        next_steps_html = """
-        <div class="requirements-section" style="border-left: 4px solid #059669;">
-            <div class="requirements-header" style="color: #059669;">
-                <span>✓</span>
-                <span>Next Steps</span>
-            </div>
-            <ol style="margin: 0; padding-left: 1.5rem; color: #4B5563; font-size: 13px; line-height: 1.8;">
-                <li style="margin-bottom: 0.75rem;"><strong>Prepare Documentation:</strong> Gather all required documents including passport, financial statements, and supporting letters.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Complete Application:</strong> Fill out the official application form from the immigration authority.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Submit Application:</strong> Submit your application through the official portal with all required documents.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Track Status:</strong> Monitor your application status through the official tracking system.</li>
-            </ol>
-        </div>
-        """
-    elif status == "NOT ELIGIBLE":
-        next_steps_html = """
-        <div class="requirements-section" style="border-left: 4px solid #DC2626;">
-            <div class="requirements-header" style="color: #DC2626;">
-                <span>✗</span>
-                <span>Recommended Actions</span>
-            </div>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #4B5563; font-size: 13px; line-height: 1.8;">
-                <li style="margin-bottom: 0.75rem;"><strong>Address Missing Requirements:</strong> Work on fulfilling the unmet requirements listed above.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Improve Financial Position:</strong> If funds are insufficient, consider additional savings or financial support.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Seek Professional Advice:</strong> Consult with an immigration advisor for personalized guidance.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Reapply When Ready:</strong> Once requirements are met, you can reapply for the visa.</li>
-            </ul>
-        </div>
-        """
-    else:
-        next_steps_html = """
-        <div class="requirements-section" style="border-left: 4px solid #F59E0B;">
-            <div class="requirements-header" style="color: #B45309;">
-                <span>!</span>
-                <span>What to Do Next</span>
-            </div>
-            <ul style="margin: 0; padding-left: 1.5rem; color: #4B5563; font-size: 13px; line-height: 1.8;">
-                <li style="margin-bottom: 0.75rem;"><strong>Clarify Requirements:</strong> Provide additional information or documentation for items marked as unclear.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Contact Immigration Office:</strong> Reach out to clarify any ambiguous requirements.</li>
-                <li style="margin-bottom: 0.75rem;"><strong>Verify Documents:</strong> Double-check that all supporting documents are valid and current.</li>
-            </ul>
-        </div>
-        """
-    
-    st.markdown(next_steps_html, unsafe_allow_html=True)
+    country_cfg = SUPPORTED_COUNTRIES.get(selected_country, {})
+    render_next_steps(status, country_cfg)
 
     # ── IMPORTANT DISCLAIMER ───────────────────────────────────────────────
     official_url = country_cfg.get("official_portal", country_cfg.get("official_url", ""))

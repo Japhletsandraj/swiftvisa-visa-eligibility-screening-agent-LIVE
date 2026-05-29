@@ -13,7 +13,7 @@ import json
 from typing import Dict, List, Optional
 
 from config.config import (
-    LM_STUDIO_CONFIG,
+    CHATANYWHERE_CONFIG,
     SYSTEM_PROMPT,
     USER_PROMPT_TEMPLATE,
     ELIGIBILITY_PROMPT_TEMPLATE,
@@ -24,20 +24,22 @@ logging.basicConfig(level=LOGGING_CONFIG["level"], format=LOGGING_CONFIG["format
 logger = logging.getLogger(__name__)
 
 
-class LMStudioLLM:
-    """LLM interface for LM Studio."""
+class ChatAnywhereLLM:
+    """LLM interface for ChatAnywhere (OpenAI compatible)."""
 
     def __init__(
         self,
         base_url: str = None,
+        api_key: str = None,
         model: str = None,
         temperature: float = None,
         max_tokens: int = None,
     ):
-        self.base_url = base_url or LM_STUDIO_CONFIG["base_url"]
-        self.model = model or LM_STUDIO_CONFIG["model"]
-        self.temperature = temperature or LM_STUDIO_CONFIG["temperature"]
-        self.max_tokens = max_tokens or LM_STUDIO_CONFIG["max_tokens"]
+        self.base_url = base_url or CHATANYWHERE_CONFIG["base_url"]
+        self.api_key = api_key or CHATANYWHERE_CONFIG["api_key"]
+        self.model = model or CHATANYWHERE_CONFIG["model"]
+        self.temperature = temperature or CHATANYWHERE_CONFIG["temperature"]
+        self.max_tokens = max_tokens or CHATANYWHERE_CONFIG["max_tokens"]
 
         logger.info(f"[LLM] Connecting to {self.base_url} — model: {self.model}")
         self._test_connection()
@@ -46,15 +48,25 @@ class LMStudioLLM:
     # ── Connection ────────────────────────────────────────────────────────────
 
     def _test_connection(self):
+        if not self.api_key:
+            logger.warning("[LLM] CHATANYWHERE_API_KEY is not set. Requests will fail if authorization is required.")
+            raise ValueError("CHATANYWHERE_API_KEY is not configured. Please add CHATANYWHERE_API_KEY to your .env file.")
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}"
+        }
         try:
-            r = requests.get(f"{self.base_url}/models", timeout=5)
+            r = requests.get(f"{self.base_url}/models", headers=headers, timeout=10)
             if r.status_code == 200:
-                logger.info("[LLM] Connected to LM Studio")
+                logger.info("[LLM] Connected to ChatAnywhere")
+            elif r.status_code in (401, 403):
+                logger.error("[LLM] Unauthorized: Invalid ChatAnywhere API key.")
+                raise ValueError("Unauthorized: Invalid ChatAnywhere API key. Please check your .env file.")
             else:
-                logger.warning(f"[LLM] LM Studio responded with status {r.status_code}")
+                logger.warning(f"[LLM] ChatAnywhere responded with status {r.status_code}: {r.text}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"[LLM] Cannot connect to LM Studio: {e}")
-            raise ConnectionError(f"Cannot connect to LM Studio at {self.base_url}")
+            logger.error(f"[LLM] Cannot connect to ChatAnywhere: {e}")
+            raise ConnectionError(f"Cannot connect to ChatAnywhere at {self.base_url}. Error: {e}")
 
     # ── Core generate ─────────────────────────────────────────────────────────
 
@@ -66,6 +78,12 @@ class LMStudioLLM:
         stream: bool = False,
     ) -> str:
         url = f"{self.base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json"
+        }
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
         payload = {
             "model": self.model,
             "messages": messages,
@@ -79,7 +97,7 @@ class LMStudioLLM:
                 logger.debug(f"  msg[{i}] role={msg['role']} len={len(msg['content'])}")
 
             logger.info(f"[LLM] Sending request to {url}...")
-            response = requests.post(url, json=payload, timeout=520)
+            response = requests.post(url, headers=headers, json=payload, timeout=60)
 
             if response.status_code != 200:
                 detail = response.text
@@ -91,16 +109,29 @@ class LMStudioLLM:
                 raise ValueError(f"LLM returned error: {detail}")
 
             response.raise_for_status()
-            text = response.json()["choices"][0]["message"]["content"]
+            response_json = response.json()
+            
+            # Extract text from response
+            try:
+                text = response_json["choices"][0]["message"]["content"]
+            except (KeyError, IndexError, TypeError) as e:
+                logger.error(f"[LLM] Unexpected response structure: {response_json}")
+                raise ValueError(f"LLM response has unexpected structure: {e}")
+            
+            # Handle None response content
+            if text is None:
+                logger.error(f"[LLM] LLM returned empty/null response content")
+                raise ValueError("LLM returned an empty response. This may indicate an API issue or model error. Please try again.")
+            
             logger.debug(f"[LLM] Response: {len(text)} chars")
             return text
 
         except requests.exceptions.Timeout as e:
-            error_msg = f"LM Studio request timed out after 520 seconds. Make sure LM Studio is running at {self.base_url} and the model '{self.model}' is loaded."
+            error_msg = f"ChatAnywhere request timed out after 60 seconds. Make sure your internet connection is stable and the API endpoint is responsive."
             logger.error(f"[LLM] Timeout: {error_msg}")
             raise TimeoutError(error_msg)
         except requests.exceptions.ConnectionError as e:
-            error_msg = f"Cannot connect to LM Studio at {self.base_url}. Is LM Studio running? Check config.py for the correct IP and port."
+            error_msg = f"Cannot connect to ChatAnywhere at {self.base_url}. Check your internet connection or base_url configuration."
             logger.error(f"[LLM] Connection error: {error_msg}")
             raise ConnectionError(error_msg)
         except requests.exceptions.HTTPError as e:
@@ -185,11 +216,11 @@ class LMStudioLLM:
 
 def test_llm():
     print("\n" + "=" * 70)
-    print(" SwiftVisa — LMStudioLLM test")
+    print(" SwiftVisa — ChatAnywhereLLM test")
     print("=" * 70)
 
     try:
-        llm = LMStudioLLM()
+        llm = ChatAnywhereLLM()
 
         # Test 1 — QA
         print("\n[Test 1] Question answering")
@@ -225,7 +256,7 @@ def test_llm():
 
     except Exception as e:
         print(f"\nError: {e}")
-        print("Ensure LM Studio is running and the model is loaded.")
+        print("Ensure you have set CHATANYWHERE_API_KEY in your .env file or environment.")
 
 
 if __name__ == "__main__":

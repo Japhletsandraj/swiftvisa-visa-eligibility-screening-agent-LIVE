@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from datetime import datetime
 
 from retriever import VisaPolicyRetriever
-from llm_integration import LMStudioLLM
+from llm_integration import ChatAnywhereLLM
 from config.config import LOGGING_CONFIG, FAISS_CONFIG
 from utils.Country_config import COUNTRY_CONFIG
 
@@ -59,7 +59,7 @@ class SwiftVisaRAG:
 
         # Initialize components — pass country-specific index path to retriever
         self.retriever = VisaPolicyRetriever(vectorstore_path=index_path)
-        self.llm = LMStudioLLM()
+        self.llm = ChatAnywhereLLM()
 
         # Conversation history for multi-turn conversations
         self.conversation_history = []
