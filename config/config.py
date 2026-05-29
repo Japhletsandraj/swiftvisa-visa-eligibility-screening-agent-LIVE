@@ -7,8 +7,23 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables from .env for local development
 load_dotenv()
+
+# Prefer Streamlit Secrets when available (deployed on Streamlit Cloud).
+# We import Streamlit lazily and fall back to environment variables when
+# Streamlit is not present (e.g., during tests or non-Streamlit runs).
+def _get_secret_env(key: str, default=None):
+    try:
+        import streamlit as _st
+        # Streamlit stores secrets as a dict-like object
+        val = _st.secrets.get(key)
+        if val is not None:
+            return val
+    except Exception:
+        # Streamlit not available or not running in that context
+        pass
+    return os.getenv(key, default)
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
@@ -19,11 +34,11 @@ LOGS_DIR = BASE_DIR / "logs"
 
 # ChatAnywhere Configuration — supports environment variables for deployment
 CHATANYWHERE_CONFIG = {
-    "base_url": os.getenv("CHATANYWHERE_BASE_URL", "https://api.chatanywhere.org/v1"),
-    "api_key": os.getenv("CHATANYWHERE_API_KEY", ""),
-    "model": os.getenv("CHATANYWHERE_MODEL", "gpt-4o-mini"),
-    "temperature": float(os.getenv("CHATANYWHERE_TEMPERATURE", "0.3")),
-    "max_tokens": int(os.getenv("CHATANYWHERE_MAX_TOKENS", "800")),
+    "base_url": _get_secret_env("CHATANYWHERE_BASE_URL", "https://api.chatanywhere.org/v1"),
+    "api_key": _get_secret_env("CHATANYWHERE_API_KEY", ""),
+    "model": _get_secret_env("CHATANYWHERE_MODEL", "gpt-4o-mini"),
+    "temperature": float(_get_secret_env("CHATANYWHERE_TEMPERATURE", "0.3")),
+    "max_tokens": int(_get_secret_env("CHATANYWHERE_MAX_TOKENS", "800")),
 }
 
 # Embedding Model Configuration
