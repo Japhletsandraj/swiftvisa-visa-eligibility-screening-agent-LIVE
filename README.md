@@ -15,7 +15,7 @@ SwiftVisa is an AI-based visa eligibility screening agent that helps applicants 
 
 ## Live Demo
 
-🌐 **Try the Application:** [SwiftVisa Streamlit App](http://swiftvisa-ai-based-visa-eligibility-screening-agent-lcwg52tcgm.streamlit.app/)
+🌐 **Try the Application:** working on it
 
 > **Note:** The website will not return results when "Evaluate" is clicked if LM Studio is not running locally. This is because the application uses a local LLM for processing visa eligibility data.
 
